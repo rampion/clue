@@ -109,13 +109,13 @@ deal n as = zipWith (:) cs $ deal n as'
 playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
 playgame ms = do
   let n = length ms
-  (killer,_)  <- draw suspects
-  (weapon,_)  <- draw weapons
-  (room,_)    <- draw rooms
-  deck    <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
-  if length deck `mod` n /= 0
+  if length cards `mod` n /= 3
     then return Nothing
     else do
+      (killer,_)  <- draw suspects
+      (weapon,_)  <- draw weapons
+      (room,_)    <- draw rooms
+      deck    <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
       ps <- sequence 
         $ zipWith (flip ($)) (deal n deck)
         $ zipWith (flip ($)) [0..]
