@@ -66,6 +66,7 @@ data Player = forall p. IOPlayer p => Player p
 
 -- deal this player in
 type MkPlayer = TotalPlayers -> PlayerPosition -> [Card] -> IO Player
+type PlayerInfo = (Player, PlayerPosition, [Card])
 
 data Event  = Proposition PlayerPosition Scenario
             | Reveal PlayerPosition
@@ -106,7 +107,7 @@ deal n [] = replicate n []
 deal n as = zipWith (:) cs $ deal n as'
   where (cs, as') = splitAt n as
 
-apply :: MkPlayer -> TotalPlayers -> PlayerPosition -> [Card] -> IO (Player, PlayerPosition, [Card])
+apply :: MkPlayer -> TotalPlayers -> PlayerPosition -> [Card] -> IO PlayerInfo
 apply m n i cs = m n i cs >>= \p -> return (p, i, cs)
 
 playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
