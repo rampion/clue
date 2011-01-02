@@ -86,18 +86,31 @@ class IOPlayer a where
   reveal :: a -> (PlayerPosition, Scenario) -> IO (a, Card)
 
 -- draw a random member of a list
-draw :: [a] -> IO a
-draw as = liftM (as !!) $ randomRIO (0, length as - 1)
+draw :: [a] -> IO (a, [a])
+draw as = do
+  i <- randomRIO (0, length as - 1)
+  let (before, a : after) = splitAt i as
+  return (a, before ++ after)
 
 -- shuffle the elements of a list into random order
+-- using http://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
 shuffle :: [a] -> IO [a]
-shuffle = undefined
+shuffle [] = return []
+shuffle as = do
+  (a, as) <- draw as
+  as <- shuffle as
+  return (a : as)
+
+deal :: TotalPlayers -> [a] -> [[a]]
+deal n [] = replicate n []
+deal n as = zipWith (:) cs $ deal n as'
+  where (cs, as') = splitAt n as
 
 playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
 playgame ms = do
-  killer  <- draw suspects
-  weapon  <- draw weapons
-  room    <- draw rooms
+  (killer,_)  <- draw suspects
+  (weapon,_)  <- draw weapons
+  (room,_)    <- draw rooms
   deck    <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
   if length deck `mod` length ms /= 0
     then return Nothing
