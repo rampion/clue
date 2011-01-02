@@ -2,7 +2,7 @@
 module Clue.Game where
 import Control.Monad (liftM, unless)
 import System.Random (randomRIO)
-import Data.List ((\\))
+import Data.List ((\\), find, intersect)
 
 elements :: Enum a => [a]
 elements = enumFrom $ toEnum 0
@@ -72,7 +72,7 @@ data PlayerInfo = PlayerInfo  { agent :: Agent
                               , lost :: Bool
                               , cheated :: Bool }
 
-data Event  = Proposition PlayerPosition Scenario
+data Event  = Suggestion PlayerPosition Scenario
             | Reveal PlayerPosition
             | WinningAccusation PlayerPosition Scenario
             | LosingAccusation PlayerPosition Scenario
@@ -90,6 +90,17 @@ class Player a where
   -- ask them to reveal a card to invalidate a suggestion
   reveal :: a -> (PlayerPosition, Scenario) -> IO (a, Card)
 
+
+wrap :: Player a => PlayerInfo -> IO (a, b) -> IO (PlayerInfo, b)
+wrap p m = m >>= \(a,b) -> return (p { agent = Agent a }, b)
+
+instance Player PlayerInfo where
+  update  (p@PlayerInfo { agent=(Agent a) }) = wrap p . update a
+    where wrap p m = m >>= \a -> return $ p { agent = Agent a }
+  suggest (p@PlayerInfo { agent=(Agent a) }) = wrap p $ suggest a
+  accuse  (p@PlayerInfo { agent=(Agent a) }) = wrap p $ accuse a
+  reveal  (p@PlayerInfo { agent=(Agent a) }) = wrap p . reveal a
+  
 -- draw a random member of a list
 draw :: [a] -> IO (a, [a])
 draw as = do
@@ -113,6 +124,19 @@ deal n as = zipWith (:) cs $ deal n as'
 
 apply :: MkAgent -> TotalPlayers -> PlayerPosition -> [Card] -> IO PlayerInfo
 apply m n i cs = m n i cs >>= \a -> return $ PlayerInfo a i cs False False
+
+playturn :: TotalPlayers -> [PlayerInfo] -> IO (Maybe PlayerPosition)
+playturn n (p:ps) = do
+  -- see if they have a suggestion
+  (p, suggestion) <- suggest p
+  (p:ps) <- case suggestion of
+    Nothing -> return (p:ps)
+    Just scenario -> do
+      -- notify the other players
+      ps <- sequence $ map (`update` (Suggestion (position p) scenario)) ps
+      let cs = map ($scenario) [ Suspect . getWho, Room . getWhere, Weapon . getHow ] 
+      case find (not . null . intersect cs . hand) ps of _ -> return (p:ps) 
+  return Nothing
 
 playgame :: [MkAgent] -> IO (Maybe PlayerPosition)
 playgame ms = do
