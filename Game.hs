@@ -62,18 +62,22 @@ you're marked as a cheat
   - cheats don't get to choose which card to reveal
 -}
 
-data Player = forall p. IOPlayer p => Player p
+data Agent = forall p. Player p => Agent p
 
 -- deal this player in
-type MkPlayer = TotalPlayers -> PlayerPosition -> [Card] -> IO Player
-type PlayerInfo = (Player, PlayerPosition, [Card])
+type MkAgent = TotalPlayers -> PlayerPosition -> [Card] -> IO Agent
+data PlayerInfo = PlayerInfo  { agent :: Agent
+                              , position :: PlayerPosition
+                              , hand :: [Card]
+                              , lost :: Bool
+                              , cheated :: Bool }
 
 data Event  = Proposition PlayerPosition Scenario
             | Reveal PlayerPosition
             | WinningAccusation PlayerPosition Scenario
             | LosingAccusation PlayerPosition Scenario
 
-class IOPlayer a where
+class Player a where
   -- let them know what another player does
   update :: a -> Event -> IO a
 
@@ -107,10 +111,10 @@ deal n [] = replicate n []
 deal n as = zipWith (:) cs $ deal n as'
   where (cs, as') = splitAt n as
 
-apply :: MkPlayer -> TotalPlayers -> PlayerPosition -> [Card] -> IO PlayerInfo
-apply m n i cs = m n i cs >>= \p -> return (p, i, cs)
+apply :: MkAgent -> TotalPlayers -> PlayerPosition -> [Card] -> IO PlayerInfo
+apply m n i cs = m n i cs >>= \a -> return $ PlayerInfo a i cs False False
 
-playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
+playgame :: [MkAgent] -> IO (Maybe PlayerPosition)
 playgame ms = do
   let n = length ms
   if length cards `mod` n /= 3
