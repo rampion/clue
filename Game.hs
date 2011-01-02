@@ -106,6 +106,9 @@ deal n [] = replicate n []
 deal n as = zipWith (:) cs $ deal n as'
   where (cs, as') = splitAt n as
 
+apply :: MkPlayer -> TotalPlayers -> PlayerPosition -> [Card] -> IO (Player, PlayerPosition, [Card])
+apply m n i cs = m n i cs >>= \p -> return (p, i, cs)
+
 playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
 playgame ms = do
   let n = length ms
@@ -115,9 +118,6 @@ playgame ms = do
       (killer,_)  <- draw suspects
       (weapon,_)  <- draw weapons
       (room,_)    <- draw rooms
-      deck    <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
-      let ps = sequence $ zipWith3 apply ms [0..] (deal n deck)
-                where apply m i cs = do 
-                        p <- m n i cs
-                        return (p, i, cs)
+      deck        <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
+      ps          <- sequence $ zipWith3 (flip apply n) ms [0..] (deal n deck)
       return Nothing
