@@ -116,8 +116,8 @@ playgame ms = do
       (weapon,_)  <- draw weapons
       (room,_)    <- draw rooms
       deck    <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
-      ps <- sequence 
-        $ zipWith (flip ($)) (deal n deck)
-        $ zipWith (flip ($)) [0..]
-        $ map ($n) ms
+      let ps = sequence $ zipWith3 apply ms [0..] (deal n deck)
+                where apply m i cs = do 
+                        p <- m n i cs
+                        return (p, i, cs)
       return Nothing
