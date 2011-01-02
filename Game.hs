@@ -1,5 +1,8 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Clue.Game where
+import Control.Monad (liftM, unless)
+import System.Random (randomRIO)
+import Data.List ((\\))
 
 elements :: Enum a => [a]
 elements = enumFrom $ toEnum 0
@@ -30,6 +33,7 @@ cards :: [Card]
 cards = map Room rooms ++ map Suspect suspects ++ map Weapon weapons
 
 data Scenario = Scenario { getWhere :: Room, getWho :: Suspect, getHow :: Weapon }
+  deriving (Eq, Show, Read)
 
 type TotalPlayers = Int
 type PlayerPosition = Int
@@ -39,7 +43,7 @@ type PlayerPosition = Int
  - return
  -  State Monad :: for StdGen (random number generator)
  -  Writer Monad :: for game log
- -  Maybe PlayerPosition :: 
+ -  Maybe PlayerPosition :: winner (if any)
 game players =
   -- choose the true scenario and remove those cards
   -- deal out the remaining cards to each player
@@ -59,18 +63,18 @@ you're marked as a cheat
 -}
 
 data Player = forall p. IOPlayer p => Player p
-data Event  = Proposition PlayerPosition Scenario
-            | WinningAccusation PlayerPosition Scenario
-            | LosingAccusation PlayerPosition Scenario
-            | Reveal PlayerPosition
 
 -- deal this player in
 type MkPlayer = TotalPlayers -> PlayerPosition -> [Card] -> IO Player
 
+data Event  = Proposition PlayerPosition Scenario
+            | Reveal PlayerPosition
+            | WinningAccusation PlayerPosition Scenario
+            | LosingAccusation PlayerPosition Scenario
+
 class IOPlayer a where
   -- let them know what another player does
   update :: a -> Event -> IO a
-  update = (return .). const
 
   -- ask them to make a suggestion
   suggest :: a -> IO (a, Maybe Scenario)
@@ -80,3 +84,22 @@ class IOPlayer a where
 
   -- ask them to reveal a card to invalidate a suggestion
   reveal :: a -> (PlayerPosition, Scenario) -> IO (a, Card)
+
+-- draw a random member of a list
+draw :: [a] -> IO a
+draw as = liftM (as !!) $ randomRIO (0, length as - 1)
+
+-- shuffle the elements of a list into random order
+shuffle :: [a] -> IO [a]
+shuffle = undefined
+
+playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
+playgame ms = do
+  killer  <- draw suspects
+  weapon  <- draw weapons
+  room    <- draw rooms
+  deck    <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
+  if length deck `mod` length ms /= 0
+    then return Nothing
+    else do
+      return Nothing
