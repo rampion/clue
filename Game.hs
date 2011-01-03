@@ -24,8 +24,10 @@ you're marked as a cheat
 -}
 import Control.Monad (liftM, unless)
 import Control.Monad.State
+import Control.Monad.Trans (MonadIO)
 import System.Random (randomRIO)
 import Data.List ((\\), find, intersect)
+import Data.Maybe (isNothing)
 
 elements :: Enum a => [a]
 elements = enumFrom $ toEnum 0
@@ -70,30 +72,30 @@ data Event  = Suggestion PlayerPosition Scenario
 
 class Player p where
   -- let them know what another player does
-  update :: Event -> StateT p IO ()
+  update :: (MonadIO io) => Event -> StateT p io ()
 
   -- ask them to make a suggestion
-  suggest :: StateT p IO (Maybe Scenario)
+  suggest :: (MonadIO io) => StateT p io (Maybe Scenario)
 
   -- ask them to make an accusation
-  accuse :: StateT p IO (Maybe Scenario)
+  accuse :: (MonadIO io) => StateT p io (Maybe Scenario)
 
   -- ask them to reveal a card to invalidate a suggestion
-  reveal :: (PlayerPosition, Scenario) -> StateT p IO Card
+  reveal :: (MonadIO io) => (PlayerPosition, Scenario) -> StateT p io Card
 
+data MkPlayer = forall p. Player p => MkPlayer (TotalPlayers -> PlayerPosition -> [Card] -> IO p)
 
-data Agent = forall p. Player p => Agent p
-type MkAgent = TotalPlayers -> PlayerPosition -> [Card] -> IO Agent
-data PlayerInfo = PlayerInfo  { agent :: Agent
+data WpPlayer = forall p. Player p => WpPlayer p
+data PlayerInfo = PlayerInfo  { agent :: WpPlayer
                               , position :: PlayerPosition
                               , hand :: [Card]
                               , lost :: Bool
                               , cheated :: Bool }
-data Action b = Action (forall p. Player p => StateT p IO b)
-wrap :: Action b -> StateT PlayerInfo IO b
-wrap (Action a) = StateT $ \(pi@PlayerInfo { agent = Agent p }) -> do
+data Action io b = Action (forall p. Player p => StateT p io b)
+wrap :: (MonadIO io) => Action io b -> StateT PlayerInfo io b
+wrap (Action a) = StateT $ \(pi@PlayerInfo { agent = WpPlayer p }) -> do
   (b, p) <- runStateT a p
-  return $ (b, pi { agent = Agent p })
+  return $ (b, pi { agent = WpPlayer p })
 
 instance Player PlayerInfo where
   update ev = wrap $ Action $ update ev
@@ -122,25 +124,35 @@ deal n [] = replicate n []
 deal n as = zipWith (:) cs $ deal n as'
   where (cs, as') = splitAt n as
 
-create :: MkAgent -> TotalPlayers -> PlayerPosition -> [Card] -> IO PlayerInfo
-create m n i cs = m n i cs >>= \a -> return $ PlayerInfo a i cs False False
+create :: MkPlayer -> TotalPlayers -> PlayerPosition -> [Card] -> IO PlayerInfo
+create (MkPlayer f) n i cs = f n i cs >>= \p -> return $ PlayerInfo (WpPlayer p) i cs False False
 
-{-
-playturn :: TotalPlayers -> [PlayerInfo] -> IO (Maybe PlayerPosition)
-playturn n (p:ps) = do
+type Game = [PlayerInfo]
+
+putHead :: PlayerInfo -> StateT Game IO ()
+putHead p = modify $ \(_:ps) -> p:ps
+
+putTail :: [PlayerInfo] -> StateT Game IO ()
+putTail ps = modify $ \(p:_) -> p:ps
+
+turn :: StateT Game IO (Maybe PlayerPosition)
+turn = do
   -- see if they have a suggestion
-  (p, suggestion) <- suggest p
-  (p:ps) <- case suggestion of
-    Nothing -> return (p:ps)
-    Just scenario -> do
-      -- notify the other players
-      ps <- sequence $ map (`update` (Suggestion (position p) scenario)) ps
-      let cs = map ($scenario) [ Suspect . getWho, Room . getWhere, Weapon . getHow ] 
-      case find (not . null . intersect cs . hand) ps of _ -> return (p:ps) 
-  return Nothing
--}
+  (suggestion, p) <- liftM head get >>= runStateT suggest
+  putHead p
 
-playgame :: [MkAgent] -> IO (Maybe PlayerPosition)
+  unless (isNothing suggestion) $ do
+    let (Just scenario) = suggestion
+    let ev = Suggestion (position p) scenario
+    -- notify the other players
+
+    _:ps <- get >>= sequence . map (liftM snd . runStateT (update ev)) . tail
+
+    let cs = map ($scenario) [ Suspect . getWho, Room . getWhere, Weapon . getHow ] 
+    case find (not . null . intersect cs . hand) ps of _ -> return () 
+  return Nothing
+
+playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
 playgame ms = do
   let n = length ms
   if length cards `mod` n /= 3
