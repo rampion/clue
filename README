@@ -1,0 +1,27 @@
+This is my attempt at implementing a simplified game of Clue (or Cluedo) in Haskell.
+
+The Game module specifies a typeclass for Players, and a mediator function (playgame)
+to walk the players through a game.
+
+In a simplified game of Clue, there can be 1,2,3,6,9 or 18 players.
+One weapon, one room, and one suspect are removed from the original deck
+of clues - the remaining 18 are divided among the players.  To win, a player must
+successfully guess the three removed clues.
+
+The players take turns in a cycle.  During a players turn, they may take 
+two actions (in order):
+* suggest a particular tuple of weapon, room, and suspect
+* accuse a particular tuple of weapon, room, and suspect
+
+After a player makes an suggestion, the next player who has any of the cards
+named must reveal one to the player.  The other players do nothing.  If no
+other player has any of the named cards, nothing happens.
+
+If a player attempts to reveal a card that was not dealt to them, or that was not named, then
+they are marked as a cheater.  They no longer get turns, and the mediator will
+automatically choose which card to display for them when responding to others suggestions
+from then on.
+
+After a player makes an accusation, it is checked against the three cards revealed.  If they are correct, they win, and the game ends.  If they are wrong, they lose, and they take no more turns, though they still get to choose which card to reveal when others make suggestions.
+
+If all players have lost, the game ends.
