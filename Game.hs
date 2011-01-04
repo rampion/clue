@@ -204,7 +204,7 @@ turn secret = do
 playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
 playgame ms = do
   let n = length ms
-  if length cards `mod` n /= 3
+  if length cards `mod` n /= 3 `mod` n
     then return Nothing
     else do
       (killer,_)  <- draw suspects
