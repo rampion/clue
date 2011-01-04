@@ -139,8 +139,8 @@ putHead p = modify $ (p:) . tail
 putTail :: [PlayerInfo] -> StateT Game IO ()
 putTail ps = modify $ (:ps) . head
 
-turn :: StateT Game IO (Maybe PlayerPosition)
-turn = do
+turn :: Scenario -> StateT Game IO (Maybe PlayerPosition)
+turn secret = do
   -- see if they have a suggestion
   (suggestion, p) <- liftM head get >>= runStateT suggest
   putHead p
@@ -167,7 +167,7 @@ turn = do
                               -- make sure they don't cheat
                               return $ if shown `elem` valid
                                           then (shown, refuter)
-                                          else (head valid, refuter { cheated = True })
+                                          else (head valid, refuter { cheated = True, lost = True })
 
       let ev = Reveal (position refuter)
       ss <- mapM (notify ev) ss
@@ -175,10 +175,38 @@ turn = do
       qs <- mapM (notify ev) qs
 
       put $ (p:qs ++ refuter:ss)
-    return ()
-  return Nothing
 
+  -- see if they have an accusation
+  (accusation, p) <- liftM head get >>= runStateT accuse
+  putHead p
 
+  case accusation of
+    Just scenario -> do
+      -- see if you won or lost
+      let won = scenario == secret
+      putHead $ p { lost = not won }
+      
+      -- tell everyone whether you won or lost
+      let ev  = (if won then LosingAccusation else WinningAccusation) (position p) scenario
+      get >>= mapM (notify ev) >>= put
+      
+      if won
+        then return $ Just $ position p
+        else do
+          p:ps <- get
+          let (qs,rss) = break (not . lost) ps
+          put (rss ++ p:qs)
+          if null rss
+            -- quit if everyone else has failed
+            then return Nothing
+            -- otherwise let the next non-loser play
+            else turn secret
+    Nothing -> do
+      p:ps <- get
+      -- find the next player who hasn't lost (if any)
+      let (qs,rss) = break (not . lost) ps
+      put (rss ++ p:qs)
+      turn secret
 
 playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
 playgame ms = do
@@ -191,5 +219,5 @@ playgame ms = do
       (room,_)    <- draw rooms
       deck        <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
       ps          <- sequence $ zipWith3 (flip create n) ms [0..] (deal n deck)
-      return Nothing
+      liftM fst $ runStateT (turn $ Scenario room killer weapon) ps
 
