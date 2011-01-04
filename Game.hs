@@ -67,6 +67,7 @@ type PlayerPosition = Int
 
 data Event  = Suggestion PlayerPosition Scenario
             | Reveal PlayerPosition
+            | RevealCard PlayerPosition Card
             | WinningAccusation PlayerPosition Scenario
             | LosingAccusation PlayerPosition Scenario
 
@@ -82,7 +83,7 @@ class Player p where
 
   -- ask them to reveal a card to invalidate a suggestion
   reveal :: (MonadIO io) => (PlayerPosition, Scenario) -> StateT p io Card
-
+  
 data MkPlayer = forall p. Player p => MkPlayer (TotalPlayers -> PlayerPosition -> [Card] -> IO p)
 
 data WpPlayer = forall p. Player p => WpPlayer p
@@ -103,6 +104,9 @@ instance Player PlayerInfo where
   accuse    = wrap $ Action $ accuse
   reveal sg = wrap $ Action $ reveal sg
  
+notify :: Event -> PlayerInfo -> StateT Game IO PlayerInfo
+notify e = liftM snd . runStateT (update e)
+
 -- draw a random member of a list
 draw :: [a] -> IO (a, [a])
 draw as = do
@@ -130,10 +134,10 @@ create (MkPlayer f) n i cs = f n i cs >>= \p -> return $ PlayerInfo (WpPlayer p)
 type Game = [PlayerInfo]
 
 putHead :: PlayerInfo -> StateT Game IO ()
-putHead p = modify $ \(_:ps) -> p:ps
+putHead p = modify $ (p:) . tail
 
 putTail :: [PlayerInfo] -> StateT Game IO ()
-putTail ps = modify $ \(p:_) -> p:ps
+putTail ps = modify $ (:ps) . head
 
 turn :: StateT Game IO (Maybe PlayerPosition)
 turn = do
@@ -143,14 +147,38 @@ turn = do
 
   unless (isNothing suggestion) $ do
     let (Just scenario) = suggestion
-    let ev = Suggestion (position p) scenario
+
     -- notify the other players
-
-    _:ps <- get >>= sequence . map (liftM snd . runStateT (update ev)) . tail
-
+    ps <- liftM tail get >>= mapM (notify $ Suggestion (position p) scenario)
+    putTail ps
+    
+    -- find the first one who can refute the scenario
     let cs = map ($scenario) [ Suspect . getWho, Room . getWhere, Weapon . getHow ] 
-    case find (not . null . intersect cs . hand) ps of _ -> return () 
+    let (qs,rss) = break (not . null . intersect cs . hand) ps 
+    unless (null rss) $ do
+      let refuter:ss= rss
+      let valid = intersect cs $ hand refuter
+
+      (shown, refuter) <- if cheated refuter 
+                            -- if the refuter is a cheater, just choose for him
+                            then return (head valid, refuter)
+                            else do 
+                              (shown, refuter) <- runStateT (reveal (position p, scenario)) refuter
+                              -- make sure they don't cheat
+                              return $ if shown `elem` valid
+                                          then (shown, refuter)
+                                          else (head valid, refuter { cheated = True })
+
+      let ev = Reveal (position refuter)
+      ss <- mapM (notify ev) ss
+      p <- notify (RevealCard (position refuter) shown) p
+      qs <- mapM (notify ev) qs
+
+      put $ (p:qs ++ refuter:ss)
+    return ()
   return Nothing
+
+
 
 playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
 playgame ms = do
