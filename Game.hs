@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, RankNTypes #-}
+{-# LANGUAGE ExistentialQuantification, MultiParamTypeClasses, Rank2Types, FlexibleInstances, FlexibleContexts, RankNTypes #-}
 module Clue.Game where
 {- This module simulates a simplified game of Clue (or Cluedo)
  - using the playgame function to mediate a game between
@@ -7,9 +7,9 @@ module Clue.Game where
 import Control.Monad (liftM, unless)
 import Control.Monad.State
 import Control.Monad.Trans (MonadIO)
-import System.Random (randomRIO)
 import Data.List ((\\), find, intersect)
 import Data.Maybe (isNothing)
+import System.Random (Random, RandomGen, randomR)
 
 -- list all the elements in a particular enum
 elements :: Enum a => [a]
@@ -59,62 +59,70 @@ data Event  = Suggestion PlayerPosition Scenario        -- someone makes a sugge
             | WinningAccusation PlayerPosition Scenario -- someone makes a winning accusation
             | LosingAccusation PlayerPosition Scenario  -- someone makes a losing accusation
 
-class Player p where
+class Player p m where
   -- let them know what another player does
-  update :: (MonadIO io) => Event -> StateT p io ()
+  notify :: Event -> p -> m p
 
   -- ask them to make a suggestion
-  suggest :: (MonadIO io) => StateT p io (Maybe Scenario)
+  suggest :: p -> m (Maybe Scenario, p)
 
   -- ask them to make an accusation
-  accuse :: (MonadIO io) => StateT p io (Maybe Scenario)
+  accuse :: p -> m (Maybe Scenario, p)
 
   -- ask them to reveal a card to invalidate a suggestion
-  reveal :: (MonadIO io) => (PlayerPosition, Scenario) -> StateT p io Card
+  reveal :: (PlayerPosition, Scenario) -> p -> m (Card, p)
 
--- wrapper for generating a player
-data MkPlayer = forall p. Player p => MkPlayer (TotalPlayers -> PlayerPosition -> [Card] -> IO p)
+-- wrapper for generating a player within a given monad
+data MkPlayer m = forall p. Player p m => MkPlayer (TotalPlayers -> PlayerPosition -> [Card] -> m p)
+
+-- wrapper for storing a player within a given monad
+data WpPlayer m = forall p. Player p m => WpPlayer p
 
 -- state about a player
-data PlayerInfo = PlayerInfo  { agent :: WpPlayer
-                              , position :: PlayerPosition
-                              , hand :: [Card]
-                              , lost :: Bool
-                              , cheated :: Bool }
-data WpPlayer = forall p. Player p => WpPlayer p
+data PlayerInfo m = PlayerInfo  { agent :: WpPlayer m
+                                , position :: PlayerPosition
+                                , hand :: [Card]
+                                , lost :: Bool
+                                , cheated :: Bool }
 
 -- make PlayerInfo into an instance of Player
-wrap :: (MonadIO io) => Action io b -> StateT PlayerInfo io b
-wrap (Action a) = StateT $ \(pi@PlayerInfo { agent = WpPlayer p }) -> do
-  (b, p) <- runStateT a p
+data Action m b = Action (forall p. Player p m => p -> m (b, p))
+wrap :: (Monad m) => Action m b -> (PlayerInfo m) -> m (b, PlayerInfo m)
+wrap (Action a) (pi@PlayerInfo { agent = WpPlayer p }) = do
+  (b, p) <- a p
   return $ (b, pi { agent = WpPlayer p })
-data Action io b = Action (forall p. Player p => StateT p io b)
 
-instance Player PlayerInfo where
-  update ev = wrap $ Action $ update ev
+instance Monad m => Player (PlayerInfo m) m where
+  notify ev (pi@PlayerInfo { agent = WpPlayer p }) = do
+    p <- notify ev p
+    return $ pi { agent = WpPlayer p }
   suggest   = wrap $ Action $ suggest
   accuse    = wrap $ Action $ accuse
   reveal sg = wrap $ Action $ reveal sg
 
--- tell a given player about some event
-notify :: Event -> PlayerInfo -> StateT Game IO PlayerInfo
-notify e = liftM snd . runStateT (update e)
+type Game m = [PlayerInfo m]
+
+gen :: (Random a, RandomGen g, Monad m) => (a,a) -> StateT g m a
+gen (lo,hi) = do
+  g <- get
+  let (i, g') = randomR (lo, hi) g
+  put g'
+  return i
 
 -- draw a random member of a list
-draw :: [a] -> IO (a, [a])
+draw :: (RandomGen g, Monad m) => [a] -> StateT g m [a]
 draw as = do
-  i <- randomRIO (0, length as - 1)
+  i <- gen (0, length as - 1)
   let (before, a : after) = splitAt i as
-  return (a, before ++ after)
+  return (a:before ++ after)
 
 -- shuffle the elements of a list into random order
 -- using http://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
-shuffle :: [a] -> IO [a]
+shuffle :: (RandomGen g, Monad m) => [a] -> StateT g m [a]
 shuffle [] = return []
 shuffle as = do
-  (a, as) <- draw as
-  as <- shuffle as
-  return (a : as)
+  (a:as) <- draw as
+  liftM (a:) $ shuffle as
 
 -- deal out the given cards to n players
 deal :: TotalPlayers -> [a] -> [[a]]
@@ -122,95 +130,29 @@ deal n [] = replicate n []
 deal n as = zipWith (:) cs $ deal n as'
   where (cs, as') = splitAt n as
 
--- use the callback to inialize player state
-create :: MkPlayer -> TotalPlayers -> PlayerPosition -> [Card] -> IO PlayerInfo
-create (MkPlayer f) n i cs = f n i cs >>= \p -> return $ PlayerInfo (WpPlayer p) i cs False False
+-- use the callback to initialize player state
+create :: (Monad m) => TotalPlayers -> PlayerPosition -> [Card] -> MkPlayer m -> m (PlayerInfo m)
+create n i cs (MkPlayer f) = f n i cs >>= \p -> return $ PlayerInfo (WpPlayer p) i cs False False
 
-type Game = [PlayerInfo]
+createAll :: (Monad m) => TotalPlayers -> [[Card]] -> [MkPlayer m] -> m [PlayerInfo m]
+createAll n = (sequence .) . zipWith3 (create n) [0..]
 
-putHead :: PlayerInfo -> StateT Game IO ()
+putHead :: (Monad m) => PlayerInfo m -> StateT (Game m) m ()
 putHead p = modify $ (p:) . tail
 
-putTail :: [PlayerInfo] -> StateT Game IO ()
+putTail :: (Monad m) => [PlayerInfo m] -> StateT (Game m) m ()
 putTail ps = modify $ (:ps) . head
 
--- let the next player take a turn
-turn :: Scenario -> StateT Game IO (Maybe PlayerPosition)
-turn secret = do
-  -- see if they have a suggestion
-  (suggestion, p) <- liftM head get >>= runStateT suggest
-  putHead p
-
-  unless (isNothing suggestion) $ do
-    let (Just scenario) = suggestion
-
-    -- broadcast the suggestion
-    get >>= mapM (notify $ Suggestion (position p) scenario) >>= put
-    
-    -- find the first one who can refute the scenario
-    let cs = map ($scenario) [ Suspect . getWho, Room . getWhere, Weapon . getHow ] 
-    (qs,rss) <- get >>= return . break (not . null . intersect cs . hand) . tail
-
-    unless (null rss) $ do
-      let refuter:ss = rss
-      let valid = intersect cs $ hand refuter
-
-      (shown, refuter) <- if cheated refuter 
-                            -- if the refuter is a cheater, just choose for him
-                            then return (head valid, refuter)
-                            else do 
-                              (shown, refuter) <- runStateT (reveal (position p, scenario)) refuter
-                              -- make sure they don't cheat
-                              return $ if shown `elem` valid
-                                          then (shown, refuter)
-                                          else (head valid, refuter { cheated = True, lost = True })
-
-      notify (RevealCard (position refuter) shown) p >>= putHead
-      mapM (notify $ RevealSomething (position refuter)) (qs ++ refuter:ss) >>= putTail
-
-  -- see if they have an accusation
-  (accusation, p) <- liftM head get >>= runStateT accuse
-  putHead p
-
-  case accusation of
-    Just scenario -> do
-      -- see if they won or lost
-      let won = scenario == secret
-      putHead $ p { lost = not won }
-      
-      -- tell everyone whether they won or lost
-      let ev  = (if won then LosingAccusation else WinningAccusation) (position p) scenario
-      get >>= mapM (notify ev) >>= put
-      
-      if won
-        then return $ Just $ position p
-        else do
-          p:ps <- get
-          let (qs,rss) = break (not . lost) ps
-          put (rss ++ p:qs)
-          if null rss
-            -- quit if everyone else has failed
-            then return Nothing
-            -- otherwise let the next non-loser play
-            else turn secret
-    Nothing -> do
-      p:ps <- get
-      -- go around the table and choose the next player who hasn't lost
-      let (qs,rss) = break (not . lost) ps
-      put (rss ++ p:qs)
-      turn secret
-
 -- play a random game, using the given methods to generate players
-playgame :: [MkPlayer] -> IO (Maybe PlayerPosition)
-playgame ms = do
+setup :: (RandomGen g, Monad m) => [MkPlayer (StateT g m)] -> StateT g m (Maybe (Scenario, Game (StateT g m)))
+setup ms = do
   let n = length ms
   if length cards `mod` n /= 3 `mod` n
     then return Nothing
     else do
-      (killer,_)  <- draw suspects
-      (weapon,_)  <- draw weapons
-      (room,_)    <- draw rooms
-      deck        <- shuffle $ cards \\ [ Suspect killer, Weapon weapon, Room room ]
-      ps          <- sequence $ zipWith3 (flip create n) ms [0..] (deal n deck)
-      liftM fst $ runStateT (turn $ Scenario room killer weapon) ps
-
+      (killer:_)  <- draw suspects
+      (weapon:_)  <- draw weapons
+      (room:_)    <- draw rooms
+      let deck    = cards \\ [ Suspect killer, Weapon weapon, Room room ]
+      ps          <- shuffle deck >>= flip (createAll n) ms . deal n 
+      return $ Just (Scenario room killer weapon, ps)
