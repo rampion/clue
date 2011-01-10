@@ -4,6 +4,7 @@ module Game where
  - using the playgame function to mediate a game between
  - supplied players.
 -}
+import Prelude hiding (log)
 import Control.Monad (liftM, unless)
 import Control.Monad.State
 import Control.Monad.Writer
@@ -107,8 +108,8 @@ ifThenElseM b a ma = if b then return a else ma
 log :: (Monad m) => Event -> StateT (Game m) (WriterT [Event] m) ()
 log = lift . tell . return
 
-suggestion :: (Monad m) => PlayerPosition -> StateT (Game m) (WriterT [Event] m) ()
-suggestion i = do
+makeSuggestion :: (Monad m) => PlayerPosition -> StateT (Game m) (WriterT [Event] m) ()
+makeSuggestion i = do
   -- make sure this player hasn't already lost
   alreadyLost <- gets lost `onPosition` i
   unless alreadyLost $ do
@@ -117,9 +118,10 @@ suggestion i = do
   suggest `onPosition` i >?= \scenario -> do
   
   -- broadcast the suggestion to the other players
-  (notify $ Suggestion i scenario) `onPositions` (i+1,i)
-
-  -- record the suggestion for the log
+  -- and record it in the log
+  let suggestion = Suggestion i scenario
+  notify suggestion `onPositions` (i+1,i)
+  log suggestion
 
   -- find the first one who can refute the scenario
   let cs = map ($scenario) [ SuspectCard . getWho, RoomCard . getWhere, WeaponCard . getHow ] 
@@ -137,9 +139,12 @@ suggestion i = do
                   return defaultReveal
 
   -- broadcast the reveal appropriately
-  (notify $ RevealSomething j) `onPositions` (j+1,i)
+  let revelation = RevealSomething j
+  notify revelation `onPositions` (j+1,i)
   (notify $ RevealCard j shown) `onPosition` i
-  (notify $ RevealSomething j) `onPositions` (i+1,j)
+  notify revelation `onPositions` (i+1,j)
+  log revelation
+
 
 -- use the callback to initialize player state
 create :: (Monad m) => TotalPlayers -> PlayerPosition -> [Card] -> MkPlayer m -> m (PlayerInfo m)
