@@ -6,6 +6,7 @@ module Game where
 -}
 import Control.Monad (liftM, unless)
 import Control.Monad.State
+import Control.Monad.Writer
 import Control.Monad.Trans (MonadIO)
 import Data.List ((\\), find, intersect)
 import Data.Maybe (isNothing)
@@ -79,22 +80,22 @@ maybeM_ ifJust = maybeM (return ()) (\a -> ifJust a >> return ())
 (>?=) :: (Monad m) => m (Maybe a) -> (a -> m b) -> m ()
 (>?=) = flip maybeM_
 
-onPositions :: Monad m => StateT (PlayerInfo m) m a -> (Int, Int) -> StateT (Game m) m [a]
-onPositions st (lo,hi) = StateT $ \ps -> do
+onPositions :: Monad m => StateT (PlayerInfo m) m a -> (Int, Int) -> StateT (Game m) (WriterT [Event] m) [a]
+onPositions st (lo,hi) = StateT $ \ps -> WriterT $ do
   if lo <= hi
     then do
       let (xs, yzs) = splitAt lo ps
       let (ys, zs) = splitAt (hi - lo) yzs
       (as, ys') <- unzip `liftM` mapM (runStateT st) ps
-      return (as, xs ++ ys' ++ zs)
+      return ((as, xs ++ ys' ++ zs), [])
     else do
       let (wxs, ys) = splitAt lo ps
       let (ws, xs) = splitAt hi wxs
       (as, ys') <- unzip `liftM` mapM (runStateT st) ys
       (bs, ws') <- unzip `liftM` mapM (runStateT st) ws
-      return (as ++ bs, ws' ++ xs ++ ys')
+      return ((as ++ bs, ws' ++ xs ++ ys'), [])
 
-onPosition :: Monad m => StateT (PlayerInfo m) m a -> Int -> StateT (Game m) m a
+onPosition :: Monad m => StateT (PlayerInfo m) m a -> Int -> StateT (Game m) (WriterT [Event] m) a
 onPosition st i = head `liftM` (st `onPositions` (i,i+1))
 
 recordCheat :: Monad m => StateT (PlayerInfo m) m ()
@@ -103,16 +104,22 @@ recordCheat = StateT $ \p -> return ( (), p { lost=True, cheated=True } )
 ifThenElseM :: Monad m => Bool -> a -> m a -> m a
 ifThenElseM b a ma = if b then return a else ma
 
-suggestion :: (Monad m) => PlayerPosition -> StateT (Game m) m ()
-suggestion i = (>>=) (gets lost `onPosition` i) $ flip unless $ do
-  -- make sure this player hasn't already lost
+log :: (Monad m) => Event -> StateT (Game m) (WriterT [Event] m) ()
+log = lift . tell . return
 
+suggestion :: (Monad m) => PlayerPosition -> StateT (Game m) (WriterT [Event] m) ()
+suggestion i = do
+  -- make sure this player hasn't already lost
+  alreadyLost <- gets lost `onPosition` i
+  unless alreadyLost $ do
 
   -- ask the current player for a suggestion
   suggest `onPosition` i >?= \scenario -> do
   
   -- broadcast the suggestion to the other players
   (notify $ Suggestion i scenario) `onPositions` (i+1,i)
+
+  -- record the suggestion for the log
 
   -- find the first one who can refute the scenario
   let cs = map ($scenario) [ SuspectCard . getWho, RoomCard . getWhere, WeaponCard . getHow ] 
