@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification, MultiParamTypeClasses, Rank2Types, FlexibleInstances, FlexibleContexts, RankNTypes #-}
+{-# LANGUAGE ExistentialQuantification, MultiParamTypeClasses, Rank2Types, FlexibleInstances, FlexibleContexts, RankNTypes, TupleSections #-}
 module Game where
 {- This module simulates a simplified game of Clue (or Cluedo)
  - using the playgame function to mediate a game between
@@ -52,6 +52,7 @@ data PlayerInfo m = PlayerInfo  { agent :: WpPlayer m
                                 , lost :: Bool
                                 , cheated :: Bool }
 
+
 -- make PlayerInfo into an instance of Player
 data Action m b = Action (forall p. Player p m => StateT p m b)
 wrap :: (Monad m) => Action m b -> StateT (PlayerInfo m) m b
@@ -65,38 +66,53 @@ instance Monad m => Player (PlayerInfo m) m where
   accuse    = wrap $ Action $ accuse
   reveal sg = wrap $ Action $ reveal sg
 
-type Game m = [PlayerInfo m]
+data GameState m = GameState  { players :: [ PlayerInfo m ]
+                              , winner  :: Maybe PlayerPosition
+                              }
+type Log = [ Event ]
 
-modifyM :: (MonadState s m) => (s -> m s) -> m ()
-modifyM f = get >>= f >>= put
+data GameT m a = GameT { runGameT :: (Scenario, GameState m) -> m (a, GameState m, Log) }
 
-maybeM :: (Monad m) => m b -> (a -> m b) -> m (Maybe a) -> m b
-maybeM ifNothing ifJust m = m >>= g
-  where g Nothing = ifNothing
-        g (Just a) = ifJust a
+instance MonadTrans GameT where
+  lift m = GameT $ \(_,state) -> m >>= return . (,state,[])
 
-maybeM_ :: (Monad m) => (a -> m b) -> m (Maybe a) -> m ()
-maybeM_ ifJust = maybeM (return ()) (\a -> ifJust a >> return ())
+instance Monad m => Monad (GameT m) where
+  m >>= f = GameT $ \(secret,state) -> do
+    (a, state, l) <- runGameT m (secret,state)
+    (b, state, l') <- runGameT (f a) (secret,state)
+    return (b, state, l ++ l')
+  return = lift . return
 
-(>?=) :: (Monad m) => m (Maybe a) -> (a -> m b) -> m ()
-(>?=) = flip maybeM_
+secret :: Monad m => GameT m Scenario
+secret = GameT $ \(secret,state) -> return (secret, state, [])
 
-onPositions :: Monad m => StateT (PlayerInfo m) m a -> (Int, Int) -> StateT (Game m) (WriterT [Event] m) [a]
-onPositions st (lo,hi) = StateT $ \ps -> WriterT $ do
-  if lo < hi
-    then do
-      let (xs, yzs) = splitAt lo ps
-      let (ys, zs) = splitAt (hi - lo) yzs
-      (as, ys') <- unzip `liftM` mapM (runStateT st) ps
-      return ((as, xs ++ ys' ++ zs), [])
-    else do
-      let (wxs, ys) = splitAt lo ps
-      let (ws, xs) = splitAt hi wxs
-      (as, ys') <- unzip `liftM` mapM (runStateT st) ys
-      (bs, ws') <- unzip `liftM` mapM (runStateT st) ws
-      return ((as ++ bs, ws' ++ xs ++ ys'), [])
+log :: Monad m => Event -> GameT m ()
+log ev = GameT $ \(_,state) -> return ((), state, [ev])
 
-onPosition :: Monad m => StateT (PlayerInfo m) m a -> Int -> StateT (Game m) (WriterT [Event] m) a
+getWinner :: Monad m => GameT m (Maybe PlayerPosition)
+getWinner = GameT $ \(_,state) -> return (winner state, state, [])
+
+setWinner :: Monad m => PlayerPosition -> GameT m ()
+setWinner i = GameT $ \(_,state) -> return ((), state { winner = Just i }, [])
+
+onPositions :: Monad m => StateT (PlayerInfo m) m a -> (Int, Int) -> GameT m [a]
+onPositions st (lo,hi) = GameT $ \(_, state) -> do
+  let ps = players state
+  (as, ps) <- if lo < hi
+                then do
+                  let (xs, yzs) = splitAt lo ps
+                  let (ys, zs) = splitAt (hi - lo) yzs
+                  (as, ys') <- unzip `liftM` mapM (runStateT st) ps
+                  return (as, xs ++ ys' ++ zs)
+                else do
+                  let (wxs, ys) = splitAt lo ps
+                  let (ws, xs) = splitAt hi wxs
+                  (as, ys') <- unzip `liftM` mapM (runStateT st) ys
+                  (bs, ws') <- unzip `liftM` mapM (runStateT st) ws
+                  return (as ++ bs, ws' ++ xs ++ ys')
+  return (as, state { players = ps }, [])
+
+onPosition :: Monad m => StateT (PlayerInfo m) m a -> Int -> GameT m a
 onPosition st i = head `liftM` (st `onPositions` (i,i+1))
 
 recordCheat :: Monad m => StateT (PlayerInfo m) m ()
@@ -105,15 +121,13 @@ recordCheat = StateT $ \p -> return ( (), p { lost=True, cheated=True } )
 ifThenElseM :: Monad m => Bool -> a -> m a -> m a
 ifThenElseM b a ma = if b then return a else ma
 
-log :: (Monad m) => Event -> StateT (Game m) (WriterT [Event] m) ()
-log = lift . tell . return
+(>?=) :: (Monad m) => m (Maybe a) -> (a -> m b) -> m ()
+m >?= f = m >>= f'
+  where f' Nothing = return ()
+        f' (Just a) = f a >> return ()
 
-makeSuggestion :: (Monad m) => PlayerPosition -> StateT (Game m) (WriterT [Event] m) ()
+makeSuggestion :: (Monad m) => PlayerPosition -> GameT m ()
 makeSuggestion i = do
-  -- make sure this player hasn't already lost
-  alreadyLost <- gets lost `onPosition` i
-  unless alreadyLost $ do
-
   -- ask the current player for a suggestion
   suggest `onPosition` i >?= \scenario -> do
   
@@ -145,20 +159,18 @@ makeSuggestion i = do
   notify revelation `onPositions` (i+1,j)
   log revelation
 
-makeAccusation :: (Monad m) => Scenario -> PlayerPosition -> StateT (Game m) (WriterT [Event] m) ()
-makeAccusation secret i = do
-  -- make sure this player hasn't already lost
-  alreadyLost <- gets lost `onPosition` i
-  unless alreadyLost $ do
-
+makeAccusation :: (Monad m) => PlayerPosition -> GameT m ()
+makeAccusation i = do
   -- ask the current player for an accusation
   accuse `onPosition` i >?= \scenario -> do
-  let won = scenario == secret
+  won <- (scenario ==) `liftM` secret
 
   let result = (if won then WinningAccusation else LosingAccusation) i scenario
 
   notify result `onPositions` (i,i)
   log result
+
+  when won $ setWinner i
 
 -- use the callback to initialize player state
 create :: (Monad m) => TotalPlayers -> PlayerPosition -> [Card] -> MkPlayer m -> m (PlayerInfo m)
