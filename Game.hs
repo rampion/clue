@@ -68,38 +68,91 @@ type Game m = [PlayerInfo m]
 modifyM :: (MonadState s m) => (s -> m s) -> m ()
 modifyM f = get >>= f >>= put
 
+maybeM :: (Monad m) => m b -> (a -> m b) -> m (Maybe a) -> m b
+maybeM ifNothing ifJust m = m >>= g
+  where g Nothing = ifNothing
+        g (Just a) = ifJust a
+
+maybeM_ :: (Monad m) => (a -> m b) -> m (Maybe a) -> m ()
+maybeM_ ifJust = maybeM (return ()) (\a -> ifJust a >> return ())
+
+(>?=) :: (Monad m) => m (Maybe a) -> (a -> m b) -> m ()
+(>?=) = flip maybeM_
+
+onPositions :: Monad m => StateT (PlayerInfo m) m a -> (Int, Int) -> StateT (Game m) m [a]
+onPositions st (lo,hi) = StateT $ \ps -> do
+  if lo <= hi
+    then do
+      let (xs, yzs) = splitAt lo ps
+      let (ys, zs) = splitAt (hi - lo) yzs
+      (as, ys') <- unzip `liftM` mapM (runStateT st) ps
+      return (as, xs ++ ys' ++ zs)
+    else do
+      let (wxs, ys) = splitAt lo ps
+      let (ws, xs) = splitAt hi wxs
+      (as, ys') <- unzip `liftM` mapM (runStateT st) ys
+      (bs, ws') <- unzip `liftM` mapM (runStateT st) ws
+      return (as ++ bs, ws' ++ xs ++ ys')
+
+onPosition :: Monad m => StateT (PlayerInfo m) m a -> Int -> StateT (Game m) m a
+onPosition st i = head `liftM` (st `onPositions` (i,i+1))
+
+recordCheat :: Monad m => StateT (PlayerInfo m) m ()
+recordCheat = StateT $ \p -> return ( (), p { lost=True, cheated=True } )
+
+ifThenElseM :: Monad m => Bool -> a -> m a -> m a
+ifThenElseM b a ma = if b then return a else ma
+
+suggestion :: (Monad m) => PlayerPosition -> StateT (Game m) m ()
+suggestion i = (>>=) (gets lost `onPosition` i) $ flip unless $ do
+  -- make sure this player hasn't already lost
+
+
+  -- ask the current player for a suggestion
+  suggest `onPosition` i >?= \scenario -> do
+  
+  -- broadcast the suggestion to the other players
+  (notify $ Suggestion i scenario) `onPositions` (i+1,i)
+
+  -- find the first one who can refute the scenario
+  let cs = map ($scenario) [ SuspectCard . getWho, RoomCard . getWhere, WeaponCard . getHow ] 
+  let relevant = intersect cs . hand
+  let findRefuter = liftM position . (find $ not . null . relevant)
+  findRefuter `liftM` (get `onPositions` (i+1,i)) >?= \j -> do
+
+  -- make sure they reveal a valid card
+  valid@(defaultReveal:_) <- gets relevant `onPosition` j
+  hasCheated <- gets cheated `onPosition` j
+  shown <- ifThenElseM hasCheated defaultReveal $ do
+              shown <- reveal (i,scenario) `onPosition` j
+              ifThenElseM (shown `elem` valid) shown $ do
+                  recordCheat `onPosition` j
+                  return defaultReveal
+
+  -- broadcast the reveal appropriately
+  (notify $ RevealSomething j) `onPositions` (j+1,i)
+  (notify $ RevealCard j shown) `onPosition` i
+  (notify $ RevealSomething j) `onPositions` (i+1,j)
+
 -- use the callback to initialize player state
 create :: (Monad m) => TotalPlayers -> PlayerPosition -> [Card] -> MkPlayer m -> m (PlayerInfo m)
 create n i cs (MkPlayer f) = f n i cs >>= \p -> return $ PlayerInfo (WpPlayer p) i cs False False
 
 createAll :: (Monad m) => TotalPlayers -> [[Card]] -> [MkPlayer m] -> m [PlayerInfo m]
-createAll n = (sequence .) . zipWith3 (create n) [0..]
-
-onHead :: Monad m => (PlayerInfo m -> StateT (Game m) m (a, PlayerInfo m)) -> StateT (Game m) m a
-onHead f = do
-  (a, pi) <- get >>= f . head 
-  modify $ (pi:) . tail
-  return a
-
-onTail :: Monad m => (PlayerInfo m -> StateT (Game m) m (a, PlayerInfo m)) -> StateT (Game m) m [a]
-onTail f = do
-  (as, pis) <- get >>= liftM unzip . mapM f
-  modify $ (:pis) . head
-  return as
-
+createAll n cs ms = sequence $ zipWith3 (create n) [0..] cs ms
 
 -- play a random game, using the given methods to generate players
-setup :: (RandomGen g, Monad m) => [MkPlayer (StateT g m)] -> StateT g m (Maybe (Scenario, Game (StateT g m)))
+setup :: (RandomGen g, Monad m) => [MkPlayer m] -> StateT g m (Maybe (Scenario, [PlayerInfo m]))
 setup ms = do
   let n = length ms
-  if length cards `mod` n /= 3 `mod` n
+  if n == 0 || length cards `mod` n /= 3 `mod` n
     then return Nothing
     else do
       (killer:_)  <- draw suspects
       (weapon:_)  <- draw weapons
       (room:_)    <- draw rooms
       let deck    = cards \\ [ SuspectCard killer, WeaponCard weapon, RoomCard room ]
-      ps          <- shuffle deck >>= flip (createAll n) ms . deal n 
+      ps          <- shuffle deck >>= lift . flip (createAll n) ms . deal n 
       return $ Just (Scenario room killer weapon, ps)
 
 {-
