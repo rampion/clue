@@ -83,7 +83,7 @@ maybeM_ ifJust = maybeM (return ()) (\a -> ifJust a >> return ())
 
 onPositions :: Monad m => StateT (PlayerInfo m) m a -> (Int, Int) -> StateT (Game m) (WriterT [Event] m) [a]
 onPositions st (lo,hi) = StateT $ \ps -> WriterT $ do
-  if lo <= hi
+  if lo < hi
     then do
       let (xs, yzs) = splitAt lo ps
       let (ys, zs) = splitAt (hi - lo) yzs
@@ -145,6 +145,20 @@ makeSuggestion i = do
   notify revelation `onPositions` (i+1,j)
   log revelation
 
+makeAccusation :: (Monad m) => Scenario -> PlayerPosition -> StateT (Game m) (WriterT [Event] m) ()
+makeAccusation secret i = do
+  -- make sure this player hasn't already lost
+  alreadyLost <- gets lost `onPosition` i
+  unless alreadyLost $ do
+
+  -- ask the current player for an accusation
+  accuse `onPosition` i >?= \scenario -> do
+  let won = scenario == secret
+
+  let result = (if won then WinningAccusation else LosingAccusation) i scenario
+
+  notify result `onPositions` (i,i)
+  log result
 
 -- use the callback to initialize player state
 create :: (Monad m) => TotalPlayers -> PlayerPosition -> [Card] -> MkPlayer m -> m (PlayerInfo m)
