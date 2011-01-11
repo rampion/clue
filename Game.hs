@@ -70,9 +70,7 @@ instance Monad m => Player (PlayerInfo m) m where
   accuse            = wrap $ Action $ accuse
   reveal sg         = wrap $ Action $ reveal sg
 
-data GameState m = GameState  { players :: [ PlayerInfo m ]
-                              , winner  :: Maybe PlayerPosition
-                              }
+type GameState m = [ PlayerInfo m ]
 type Log = [ Event ]
 
 data GameT m a = GameT { runGameT :: (Scenario, GameState m) -> m (a, GameState m, Log) }
@@ -93,15 +91,9 @@ secret = GameT $ \(secret,state) -> return (secret, state, [])
 log :: Monad m => Event -> GameT m ()
 log ev = GameT $ \(_,state) -> return ((), state, [ev])
 
-getWinner :: Monad m => GameT m (Maybe PlayerPosition)
-getWinner = GameT $ \(_,state) -> return (winner state, state, [])
-
-setWinner :: Monad m => PlayerPosition -> GameT m ()
-setWinner i = GameT $ \(_,state) -> return ((), state { winner = Just i }, [])
-
-onPositions :: Monad m => StateT (PlayerInfo m) m a -> (Int, Int) -> GameT m [a]
+onPositions :: Monad m => StateT (PlayerInfo m) m a -> (PlayerPosition, PlayerPosition) -> GameT m [a]
 onPositions st (lo,hi) = GameT $ \(_, state) -> do
-  let ps = players state
+  let ps = state
   (as, ps) <- if lo < hi
                 then do
                   let (xs, yzs) = splitAt lo ps
@@ -114,9 +106,9 @@ onPositions st (lo,hi) = GameT $ \(_, state) -> do
                   (as, ys') <- unzip `liftM` mapM (runStateT st) ys
                   (bs, ws') <- unzip `liftM` mapM (runStateT st) ws
                   return (as ++ bs, ws' ++ xs ++ ys')
-  return (as, state { players = ps }, [])
+  return (as, ps, [])
 
-onPosition :: Monad m => StateT (PlayerInfo m) m a -> Int -> GameT m a
+onPosition :: Monad m => StateT (PlayerInfo m) m a -> PlayerPosition -> GameT m a
 onPosition st i = head `liftM` (st `onPositions` (i,i+1))
 
 recordCheat :: Monad m => StateT (PlayerInfo m) m ()
@@ -125,56 +117,61 @@ recordCheat = StateT $ \p -> return ( (), p { lost=True, cheated=True } )
 ifThenElseM :: Monad m => Bool -> a -> m a -> m a
 ifThenElseM b a ma = if b then return a else ma
 
-(>?=) :: (Monad m) => m (Maybe a) -> (a -> m b) -> m ()
-m >?= f = m >>= f'
-  where f' Nothing = return ()
-        f' (Just a) = f a >> return ()
-
 makeSuggestion :: (Monad m) => PlayerPosition -> GameT m ()
 makeSuggestion i = do
   -- ask the current player for a suggestion
-  suggest `onPosition` i >?= \scenario -> do
-  
-  -- broadcast the suggestion to the other players
-  -- and record it in the log
-  let suggestion = Suggestion i scenario
-  notify suggestion `onPositions` (i+1,i)
-  log suggestion
+  maybeScenario <- suggest `onPosition` i 
+  case maybeScenario of
+    Nothing       -> return ()
+    Just scenario -> do
 
-  -- find the first one who can refute the scenario
-  let cs = map ($scenario) [ SuspectCard . getWho, RoomCard . getWhere, WeaponCard . getHow ] 
-  let relevant = intersect cs . hand
-  let findRefuter = liftM position . (find $ not . null . relevant)
-  findRefuter `liftM` (get `onPositions` (i+1,i)) >?= \j -> do
+      -- broadcast the suggestion to the other players
+      -- and record it in the log
+      let suggestion = Suggestion i scenario
+      notify suggestion `onPositions` (i+1,i)
+      log suggestion
 
-  -- make sure they reveal a valid card
-  valid@(defaultReveal:_) <- gets relevant `onPosition` j
-  hasCheated <- gets cheated `onPosition` j
-  shown <- ifThenElseM hasCheated defaultReveal $ do
-              shown <- reveal (i,scenario) `onPosition` j
-              ifThenElseM (shown `elem` valid) shown $ do
-                  recordCheat `onPosition` j
-                  return defaultReveal
+      -- find the first one who can refute the scenario
+      let cs = map ($scenario) [ SuspectCard . getWho, RoomCard . getWhere, WeaponCard . getHow ] 
+      let relevant = intersect cs . hand
+      let findRefuter = liftM position . (find $ not . null . relevant)
 
-  -- broadcast the reveal appropriately
-  let revelation = RevealSomething j
-  notify revelation `onPositions` (j+1,i)
-  (notify $ RevealCard j shown) `onPosition` i
-  notify revelation `onPositions` (i+1,j)
-  log revelation
+      maybeRefuter <- findRefuter `liftM` (get `onPositions` (i+1,i))
+      case maybeRefuter of
+        Nothing -> return ()
+        Just j  -> do
 
-makeAccusation :: (Monad m) => PlayerPosition -> GameT m ()
+          -- make sure they reveal a valid card
+          valid@(defaultReveal:_) <- gets relevant `onPosition` j
+          hasCheated <- gets cheated `onPosition` j
+          shown <- ifThenElseM hasCheated defaultReveal $ do
+                      shown <- reveal (i,scenario) `onPosition` j
+                      ifThenElseM (shown `elem` valid) shown $ do
+                          recordCheat `onPosition` j
+                          return defaultReveal
+
+          -- broadcast the reveal appropriately
+          let revelation = RevealSomething j
+          notify revelation `onPositions` (j+1,i)
+          (notify $ RevealCard j shown) `onPosition` i
+          notify revelation `onPositions` (i+1,j)
+          log revelation
+
+makeAccusation :: (Monad m) => PlayerPosition -> GameT m Bool
 makeAccusation i = do
   -- ask the current player for an accusation
-  accuse `onPosition` i >?= \scenario -> do
-  won <- (scenario ==) `liftM` secret
+  maybeScenario <- accuse `onPosition` i
+  case maybeScenario of
+    Nothing       -> return False
+    Just scenario -> do
+      won <- (scenario ==) `liftM` secret
 
-  let result = (if won then WinningAccusation else LosingAccusation) i scenario
+      let result = (if won then WinningAccusation else LosingAccusation) i scenario
 
-  notify result `onPositions` (i,i)
-  log result
+      notify result `onPositions` (i,i)
+      log result
 
-  when won $ setWinner i
+      return won
 
 mkPlayerInfo :: Monad m => TotalPlayers -> PlayerPosition -> [Card] -> WpPlayer m -> m (PlayerInfo m)
 mkPlayerInfo t i cs w = snd `liftM` (dealIn t i cs `runStateT` PlayerInfo w i cs False False)
@@ -194,3 +191,13 @@ setup ws = do
       ps          <- lift $ sequence $ zipWith3 (mkPlayerInfo n) [0..(n-1)] hands ws
       return $ Just (Scenario room killer weapon, ps)
 
+turnLoop :: Monad m => PlayerPosition -> GameT m (Maybe PlayerPosition)
+turnLoop i = do
+  makeSuggestion i
+  won <- makeAccusation i
+  ifThenElseM won (Just i) $ do
+      let findNext = liftM position . (find $ not . lost)
+      maybeNext <- findNext `liftM` (get `onPositions` (i+1,i+1))
+      case maybeNext of 
+        Nothing -> return Nothing
+        Just i' -> turnLoop i'
