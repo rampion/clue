@@ -173,6 +173,17 @@ makeAccusation i = do
 
       return won
 
+turnLoop :: Monad m => PlayerPosition -> GameT m (Maybe PlayerPosition)
+turnLoop i = do
+  makeSuggestion i
+  won <- makeAccusation i
+  ifThenElseM won (Just i) $ do
+      let findNext = liftM position . (find $ not . lost)
+      maybeNext <- findNext `liftM` (get `onPositions` (i+1,i+1))
+      case maybeNext of 
+        Nothing -> return Nothing
+        Just i' -> turnLoop i'
+
 mkPlayerInfo :: Monad m => TotalPlayers -> PlayerPosition -> [Card] -> WpPlayer m -> m (PlayerInfo m)
 mkPlayerInfo t i cs w = snd `liftM` (dealIn t i cs `runStateT` PlayerInfo w i cs False False)
 
@@ -191,13 +202,14 @@ setup ws = do
       ps          <- lift $ sequence $ zipWith3 (mkPlayerInfo n) [0..(n-1)] hands ws
       return $ Just (Scenario room killer weapon, ps)
 
-turnLoop :: Monad m => PlayerPosition -> GameT m (Maybe PlayerPosition)
-turnLoop i = do
-  makeSuggestion i
-  won <- makeAccusation i
-  ifThenElseM won (Just i) $ do
-      let findNext = liftM position . (find $ not . lost)
-      maybeNext <- findNext `liftM` (get `onPositions` (i+1,i+1))
-      case maybeNext of 
-        Nothing -> return Nothing
-        Just i' -> turnLoop i'
+play :: (RandomGen g, Monad m) => StateT [WpPlayer m] (StateT g m) (Maybe PlayerPosition, Log)
+play = do
+  pregame <- get >>= lift . setup
+  case pregame of
+    Nothing   -> return (Nothing, [])
+    Just init -> do
+      (winner, ps', ls) <- lift $ lift $ runGameT (turnLoop 0) init
+      put $ map agent ps'
+      return (winner, ls)
+  
+
