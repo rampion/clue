@@ -27,6 +27,9 @@ data Event  = Suggestion PlayerPosition Scenario        -- someone makes a sugge
             | LosingAccusation PlayerPosition Scenario  -- someone makes a losing accusation
 
 class Player p m where
+  -- deal them in to a particular game
+  dealIn :: TotalPlayers -> PlayerPosition -> [Card] -> StateT p m ()
+
   -- let them know what another player does
   notify :: Event -> StateT p m ()
 
@@ -61,10 +64,11 @@ wrap (Action a) = StateT $ \(pi@PlayerInfo { agent = WpPlayer p }) -> do
   return (b, pi { agent = WpPlayer p })
 
 instance Monad m => Player (PlayerInfo m) m where
-  notify ev = wrap $ Action $ notify ev
-  suggest   = wrap $ Action $ suggest
-  accuse    = wrap $ Action $ accuse
-  reveal sg = wrap $ Action $ reveal sg
+  dealIn t i cs     = wrap $ Action $ dealIn t i cs
+  notify ev         = wrap $ Action $ notify ev
+  suggest           = wrap $ Action $ suggest
+  accuse            = wrap $ Action $ accuse
+  reveal sg         = wrap $ Action $ reveal sg
 
 data GameState m = GameState  { players :: [ PlayerInfo m ]
                               , winner  :: Maybe PlayerPosition
@@ -172,17 +176,13 @@ makeAccusation i = do
 
   when won $ setWinner i
 
--- use the callback to initialize player state
-create :: (Monad m) => TotalPlayers -> PlayerPosition -> [Card] -> MkPlayer m -> m (PlayerInfo m)
-create n i cs (MkPlayer f) = f n i cs >>= \p -> return $ PlayerInfo (WpPlayer p) i cs False False
-
-createAll :: (Monad m) => TotalPlayers -> [[Card]] -> [MkPlayer m] -> m [PlayerInfo m]
-createAll n cs ms = sequence $ zipWith3 (create n) [0..] cs ms
+mkPlayerInfo :: Monad m => TotalPlayers -> PlayerPosition -> [Card] -> WpPlayer m -> m (PlayerInfo m)
+mkPlayerInfo t i cs w = snd `liftM` (dealIn t i cs `runStateT` PlayerInfo w i cs False False)
 
 -- play a random game, using the given methods to generate players
-setup :: (RandomGen g, Monad m) => [MkPlayer m] -> StateT g m (Maybe (Scenario, [PlayerInfo m]))
-setup ms = do
-  let n = length ms
+setup :: (RandomGen g, Monad m) => [WpPlayer m] -> StateT g m (Maybe (Scenario, [PlayerInfo m]))
+setup ws = do
+  let n = length ws 
   if n == 0 || length cards `mod` n /= 3 `mod` n
     then return Nothing
     else do
@@ -190,6 +190,7 @@ setup ms = do
       (weapon:_)  <- draw weapons
       (room:_)    <- draw rooms
       let deck    = cards \\ [ SuspectCard killer, WeaponCard weapon, RoomCard room ]
-      ps          <- shuffle deck >>= lift . flip (createAll n) ms . deal n 
+      hands       <- deal n `liftM` shuffle deck
+      ps          <- lift $ sequence $ zipWith3 (mkPlayerInfo n) [0..(n-1)] hands ws
       return $ Just (Scenario room killer weapon, ps)
 
