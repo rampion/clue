@@ -1,4 +1,4 @@
-module Cards where
+module Clue.Cards where
 import System.Random (Random, RandomGen, randomR)
 import Control.Monad.State
 

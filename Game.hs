@@ -1,5 +1,5 @@
 {-# LANGUAGE ExistentialQuantification, MultiParamTypeClasses, Rank2Types, FlexibleInstances, FlexibleContexts, RankNTypes, TupleSections #-}
-module Game where
+module Clue.Game where
 {- This module simulates a simplified game of Clue (or Cluedo)
  - using the playgame function to mediate a game between
  - supplied players.
@@ -9,45 +9,12 @@ import Control.Monad (liftM, unless)
 import Control.Monad.State
 import Control.Monad.Writer
 import Control.Monad.Trans (MonadIO)
-import Data.List ((\\), find, intersect)
+import Data.List ((\\), find, findIndex, intersect)
 import Data.Maybe (isNothing)
 import System.Random (RandomGen)
 
-import Cards
-
-type TotalPlayers = Int
-type PlayerPosition = Int
-
--- events are broadcast whenever a player does something
--- that other players should know about
-data Event  = Suggestion PlayerPosition Scenario        -- someone makes a suggestion
-            | RevealSomething PlayerPosition            -- someone reveals an unknown card to the suggestor
-            | RevealCard PlayerPosition Card            -- someone reveals a card to you
-            | WinningAccusation PlayerPosition Scenario -- someone makes a winning accusation
-            | LosingAccusation PlayerPosition Scenario  -- someone makes a losing accusation
-  deriving (Show, Eq)
-
-class Player p m where
-  -- deal them in to a particular game
-  dealIn :: TotalPlayers -> PlayerPosition -> [Card] -> StateT p m ()
-
-  -- let them know what another player does
-  notify :: Event -> StateT p m ()
-
-  -- ask them to make a suggestion
-  suggest :: StateT p m (Maybe Scenario)
-
-  -- ask them to make an accusation
-  accuse :: StateT p m (Maybe Scenario)
-
-  -- ask them to reveal a card to invalidate a suggestion
-  reveal :: (PlayerPosition, Scenario) -> StateT p m Card
-
--- wrapper for generating a player within a given monad
-data MkPlayer m = forall p. Player p m => MkPlayer (TotalPlayers -> PlayerPosition -> [Card] -> m p)
-
--- wrapper for storing a player within a given monad
-data WpPlayer m = forall p. Player p m => WpPlayer p
+import Clue.Cards
+import Clue.Player
 
 -- state about a player
 data PlayerInfo m = PlayerInfo  { agent :: WpPlayer m
@@ -55,6 +22,8 @@ data PlayerInfo m = PlayerInfo  { agent :: WpPlayer m
                                 , hand :: [Card]
                                 , lost :: Bool
                                 , cheated :: Bool }
+instance Show (PlayerInfo m) where
+  show pi = show (position pi, hand pi, lost pi, cheated pi)
 
 
 -- make PlayerInfo into an instance of Player
@@ -135,13 +104,15 @@ makeSuggestion i = do
       -- find the first one who can refute the scenario
       let cs = map ($scenario) [ SuspectCard . getWho, RoomCard . getWhere, WeaponCard . getHow ] 
       let relevant = intersect cs . hand
-      let findRefuter = liftM position . (find $ not . null . relevant)
+     
+      n <- GameT $ \(_,ps) -> return (length ps, ps, [])
+      let findRefuter = liftM (\j -> (j + i + 1) `mod` n) . (findIndex $ not . null . relevant)
 
       maybeRefuter <- findRefuter `liftM` (get `onPositions` (i+1,i))
       case maybeRefuter of
         Nothing -> return ()
         Just j  -> do
-
+      
           -- make sure they reveal a valid card
           valid@(defaultReveal:_) <- gets relevant `onPosition` j
           hasCheated <- gets cheated `onPosition` j

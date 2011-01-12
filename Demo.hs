@@ -1,8 +1,9 @@
 module Main where
 
-import Cards
-import Game
-import Naive
+import Clue.Cards
+import Clue.Game
+import Clue.Player
+import Clue.Player.Naive
 import Control.Monad.State
 import Random
 

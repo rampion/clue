@@ -1,8 +1,8 @@
 {-# LANGUAGE FlexibleInstances,MultiParamTypeClasses #-}
-module Naive where
+module Clue.Player.Naive where
 
-import Cards
-import Game
+import Clue.Cards
+import Clue.Player
 import Control.Monad.State
 import Data.List ((\\))
 
