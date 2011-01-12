@@ -25,6 +25,7 @@ data Event  = Suggestion PlayerPosition Scenario        -- someone makes a sugge
             | RevealCard PlayerPosition Card            -- someone reveals a card to you
             | WinningAccusation PlayerPosition Scenario -- someone makes a winning accusation
             | LosingAccusation PlayerPosition Scenario  -- someone makes a losing accusation
+  deriving (Show, Eq)
 
 class Player p m where
   -- deal them in to a particular game

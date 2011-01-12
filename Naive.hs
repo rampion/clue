@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleInstances,MultiParamTypeClasses #-}
-module Player where
+module Naive where
 
 import Cards
 import Game
@@ -30,6 +30,6 @@ instance (Monad m) => Player Naive m where
   reveal (_, Scenario r s w) = do
     showWhere <- gets (elem r . wheres)
     showWho <- gets (elem s . whos)
-    if showWhere        then return (RoomCard r) 
-      else if showWho   then return (SuspectCard s) 
-                        else return (WeaponCard w)
+    return $  if showWhere        then RoomCard r
+                else if showWho   then SuspectCard s
+                                  else WeaponCard w
