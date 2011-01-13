@@ -39,26 +39,19 @@ data Card = RoomCard Room | SuspectCard Suspect | WeaponCard Weapon
 cards :: [Card]
 cards = map RoomCard rooms ++ map SuspectCard suspects ++ map WeaponCard weapons
 
-gen :: (Random a, RandomGen g, Monad m) => (a,a) -> StateT g m a
-gen (lo,hi) = do
-  g <- get
-  let (i, g') = randomR (lo, hi) g
-  put g'
-  return i
-
 -- draw a random member of a list
-draw :: (RandomGen g, Monad m) => [a] -> StateT g m [a]
+draw :: (RandomGen g, Monad m) => [a] -> StateT g m (a,[a])
 draw as = do
-  i <- gen (0, length as - 1)
+  i <- StateT $ return . randomR (0, length as - 1)
   let (before, a : after) = splitAt i as
-  return (a:before ++ after)
+  return (a, before ++ after)
 
 -- shuffle the elements of a list into random order
 -- using http://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
 shuffle :: (RandomGen g, Monad m) => [a] -> StateT g m [a]
 shuffle [] = return []
 shuffle as = do
-  (a:as) <- draw as
+  (a,as) <- draw as
   liftM (a:) $ shuffle as
 
 -- deal out the given cards to n players
