@@ -26,7 +26,7 @@ instance (Monad m) => Player Naive m where
     r:rs <- gets wheres
     s:ss <- gets whos
     w:ws <- gets hows
-    return $ if null rs && null ss && null ws then (Just $ Scenario r s w) else Nothing
+    return $ if null rs && null ss && null ws then Just $ Scenario r s w else Nothing
   reveal (_, Scenario r s w) = do
     showWhere <- gets (elem r . wheres)
     showWho <- gets (elem s . whos)

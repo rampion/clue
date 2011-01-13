@@ -5,7 +5,7 @@ module Clue.Game where
  - supplied players.
 -}
 import Prelude hiding (log)
-import Control.Monad (liftM, unless)
+import Control.Monad (liftM, unless,mapAndUnzipM)
 import Control.Monad.State
 import Control.Monad.Writer
 import Control.Monad.Trans (MonadIO)
@@ -36,8 +36,8 @@ wrap (Action a) = StateT $ \(pi@PlayerInfo { agent = WpPlayer p }) -> do
 instance Monad m => Player (PlayerInfo m) m where
   dealIn t i cs     = wrap $ Action $ dealIn t i cs
   notify ev         = wrap $ Action $ notify ev
-  suggest           = wrap $ Action $ suggest
-  accuse            = wrap $ Action $ accuse
+  suggest           = wrap $ Action suggest
+  accuse            = wrap $ Action accuse
   reveal sg         = wrap $ Action $ reveal sg
 
 type GameState m = [ PlayerInfo m ]
@@ -68,13 +68,13 @@ onPositions st (lo,hi) = GameT $ \(_, state) -> do
                 then do
                   let (xs, yzs) = splitAt lo ps
                   let (ys, zs) = splitAt (hi - lo) yzs
-                  (as, ys') <- unzip `liftM` mapM (runStateT st) ps
+                  (as, ys') <- mapAndUnzipM (runStateT st) ps
                   return (as, xs ++ ys' ++ zs)
                 else do
                   let (wxs, ys) = splitAt lo ps
                   let (ws, xs) = splitAt hi wxs
-                  (as, ys') <- unzip `liftM` mapM (runStateT st) ys
-                  (bs, ws') <- unzip `liftM` mapM (runStateT st) ws
+                  (as, ys') <- mapAndUnzipM (runStateT st) ys
+                  (bs, ws') <- mapAndUnzipM (runStateT st) ws
                   return (as ++ bs, ws' ++ xs ++ ys')
   return (as, ps, [])
 
@@ -106,13 +106,12 @@ makeSuggestion i = do
       let relevant = intersect cs . hand
      
       n <- GameT $ \(_,ps) -> return (length ps, ps, [])
-      let findRefuter = liftM (\j -> (j + i + 1) `mod` n) . (findIndex $ not . null . relevant)
+      let findRefuter = liftM position . find (not . null . relevant)
 
       maybeRefuter <- findRefuter `liftM` (get `onPositions` (i+1,i))
       case maybeRefuter of
         Nothing -> return ()
         Just j  -> do
-      
           -- make sure they reveal a valid card
           valid@(defaultReveal:_) <- gets relevant `onPosition` j
           hasCheated <- gets cheated `onPosition` j
@@ -121,11 +120,10 @@ makeSuggestion i = do
                       ifThenElseM (shown `elem` valid) shown $ do
                           recordCheat `onPosition` j
                           return defaultReveal
-
           -- broadcast the reveal appropriately
           let revelation = RevealSomething j
           notify revelation `onPositions` (j+1,i)
-          (notify $ RevealCard j shown) `onPosition` i
+          notify (RevealCard j shown) `onPosition` i
           notify revelation `onPositions` (i+1,j)
           log revelation
 
@@ -150,7 +148,7 @@ turnLoop i = do
   makeSuggestion i
   won <- makeAccusation i
   ifThenElseM won (Just i) $ do
-      let findNext = liftM position . (find $ not . lost)
+      let findNext = liftM position . find (not . lost)
       maybeNext <- findNext `liftM` (get `onPositions` (i+1,i+1))
       case maybeNext of 
         Nothing -> return Nothing
