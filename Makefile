@@ -3,7 +3,7 @@ TARGETS=src/Demo
 GHC_FLAGS=-Wall -fno-warn-unused-do-bind
 all: ${TARGETS}
 
-${TARGETS}:
+src/%: src/%.hs $(shell find src/Clue -name \*.hs)
 	cd $(dir $@) && ghc $(GHC_FLAGS) --make $(notdir $@) 
 
 clean:
