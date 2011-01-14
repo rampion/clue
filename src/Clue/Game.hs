@@ -5,12 +5,9 @@ module Clue.Game where
  - supplied players.
 -}
 import Prelude hiding (log)
-import Control.Monad (liftM, unless,mapAndUnzipM)
 import Control.Monad.State
 import Control.Monad.Writer
-import Control.Monad.Trans (MonadIO)
-import Data.List ((\\), find, findIndex, intersect)
-import Data.Maybe (isNothing)
+import Data.List ((\\), find, intersect)
 import System.Random (RandomGen)
 
 import Clue.Cards
@@ -105,7 +102,6 @@ makeSuggestion i = do
       let cs = map ($scenario) [ SuspectCard . getWho, RoomCard . getWhere, WeaponCard . getHow ] 
       let relevant = intersect cs . hand
      
-      n <- GameT $ \(_,ps) -> return (length ps, ps, [])
       let findRefuter = liftM position . find (not . null . relevant)
 
       maybeRefuter <- findRefuter `liftM` (get `onPositions` (i+1,i))
