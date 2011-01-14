@@ -68,7 +68,7 @@ onPositions st (lo,hi) = GameT $ \(_, state) -> do
                 then do
                   let (xs, yzs) = splitAt lo ps
                   let (ys, zs) = splitAt (hi - lo) yzs
-                  (as, ys') <- mapAndUnzipM (runStateT st) ps
+                  (as, ys') <- mapAndUnzipM (runStateT st) ys
                   return (as, xs ++ ys' ++ zs)
                 else do
                   let (wxs, ys) = splitAt lo ps
