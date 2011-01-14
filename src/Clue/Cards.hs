@@ -51,8 +51,8 @@ draw as = do
 shuffle :: (RandomGen g, Monad m) => [a] -> StateT g m [a]
 shuffle [] = return []
 shuffle as = do
-  (a,as) <- draw as
-  liftM (a:) $ shuffle as
+  (a,as') <- draw as
+  liftM (a:) $ shuffle as'
 
 -- deal out the given cards to n players
 deal :: Int -> [a] -> [[a]]

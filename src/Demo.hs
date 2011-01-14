@@ -1,6 +1,5 @@
 module Main where
 
-import Clue.Cards
 import Clue.Game
 import Clue.Player
 import Clue.Player.Naive

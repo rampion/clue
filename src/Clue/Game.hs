@@ -4,7 +4,7 @@ module Clue.Game where
  - using the playgame function to mediate a game between
  - supplied players.
 -}
-import Prelude hiding (log)
+import Prelude hiding (log, pi)
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.List ((\\), find, intersect)
@@ -27,8 +27,8 @@ instance Show (PlayerInfo m) where
 data Action m b = Action (forall p. Player p m => StateT p m b)
 wrap :: (Monad m) => Action m b -> StateT (PlayerInfo m) m b
 wrap (Action a) = StateT $ \(pi@PlayerInfo { agent = WpPlayer p }) -> do
-  (b, p) <- runStateT a p
-  return (b, pi { agent = WpPlayer p })
+  (b, p') <- runStateT a p
+  return (b, pi { agent = WpPlayer p' })
 
 instance Monad m => Player (PlayerInfo m) m where
   dealIn t i cs     = wrap $ Action $ dealIn t i cs
@@ -46,14 +46,14 @@ instance MonadTrans GameT where
   lift m = GameT $ \(_,state) -> m >>= return . (,state,[])
 
 instance Monad m => Monad (GameT m) where
-  m >>= f = GameT $ \(secret,state) -> do
-    (a, state, l) <- runGameT m (secret,state)
-    (b, state, l') <- runGameT (f a) (secret,state)
-    return (b, state, l ++ l')
+  m >>= f = GameT $ \(scenario,state) -> do
+    (a, state', l) <- runGameT m (scenario,state)
+    (b, state'', l') <- runGameT (f a) (scenario,state')
+    return (b, state'', l ++ l')
   return = lift . return
 
 secret :: Monad m => GameT m Scenario
-secret = GameT $ \(secret,state) -> return (secret, state, [])
+secret = GameT $ \(scenario,state) -> return (scenario, state, [])
 
 log :: Monad m => Event -> GameT m ()
 log ev = GameT $ \(_,state) -> return ((), state, [ev])
@@ -61,7 +61,7 @@ log ev = GameT $ \(_,state) -> return ((), state, [ev])
 onPositions :: Monad m => StateT (PlayerInfo m) m a -> (PlayerPosition, PlayerPosition) -> GameT m [a]
 onPositions st (lo,hi) = GameT $ \(_, state) -> do
   let ps = state
-  (as, ps) <- if lo < hi
+  (as, ps') <- if lo < hi
                 then do
                   let (xs, yzs) = splitAt lo ps
                   let (ys, zs) = splitAt (hi - lo) yzs
@@ -73,7 +73,7 @@ onPositions st (lo,hi) = GameT $ \(_, state) -> do
                   (as, ys') <- mapAndUnzipM (runStateT st) ys
                   (bs, ws') <- mapAndUnzipM (runStateT st) ws
                   return (as ++ bs, ws' ++ xs ++ ys')
-  return (as, ps, [])
+  return (as, ps', [])
 
 onPosition :: Monad m => StateT (PlayerInfo m) m a -> PlayerPosition -> GameT m a
 onPosition st i = head `liftM` (st `onPositions` (i,i+1))
@@ -173,8 +173,8 @@ play = do
   pregame <- get >>= lift . setup
   case pregame of
     Nothing   -> return (Nothing, [])
-    Just init -> do
-      (winner, ps', ls) <- lift $ lift $ runGameT (turnLoop 0) init
+    Just game -> do
+      (winner, ps', ls) <- lift $ lift $ runGameT (turnLoop 0) game
       put $ map agent ps'
       return (winner, ls)
   
