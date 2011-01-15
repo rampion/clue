@@ -1,4 +1,4 @@
-module Main where
+module Clue.Cards.Tests where
 
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Arbitrary
@@ -22,7 +22,6 @@ creates_n_lists (Undealt n as) = property $ n == length (deal n as)
 distributes_cards :: Undealt -> Property
 distributes_cards (Undealt n as) = property $ as == concat (transpose $ deal n as)
 
-main :: IO ()
-main = do
-  quickCheck creates_n_lists
-  quickCheck distributes_cards
+clue_card_props = [ creates_n_lists
+                  , distributes_cards
+                  ]
