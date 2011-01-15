@@ -4,9 +4,19 @@ import Test.Framework
 import Clue.Cards
 
 import Data.List (transpose, sort)
+import Data.Maybe (fromJust)
 import System.Random (mkStdGen)
 import Control.Monad.State (runStateT)
 import Control.Monad.Identity (runIdentity)
+
+runDraw :: Int -> [a] -> Maybe (a, [a])
+runDraw i as = fst $ runIdentity $ draw as `runStateT` mkStdGen i
+
+prop_draw_extracts_an_element :: Int -> String -> Property
+prop_draw_extracts_an_element i as@[] =
+  property $ Nothing == runDraw i as
+prop_draw_extracts_an_element i as =
+  property $ sort as == sort (uncurry (:) . fromJust $ runDraw i as)
 
 runShuffle :: Int -> [a] -> [a]
 runShuffle i as = fst $ runIdentity $ shuffle as `runStateT` mkStdGen i

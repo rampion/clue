@@ -160,9 +160,9 @@ setup ws = do
   if n == 0 || length cards `mod` n /= 3 `mod` n
     then return Nothing
     else do
-      (killer,_)  <- draw suspects
-      (weapon,_)  <- draw weapons
-      (room,_)    <- draw rooms
+      Just (killer,_)  <- draw suspects
+      Just (weapon,_)  <- draw weapons
+      Just (room,_)    <- draw rooms
       let deck    = cards \\ [ SuspectCard killer, WeaponCard weapon, RoomCard room ]
       hands       <- deal n `liftM` shuffle deck
       ps          <- lift $ sequence $ zipWith3 (mkPlayerInfo n) [0..(n-1)] hands ws

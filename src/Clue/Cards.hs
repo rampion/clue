@@ -40,18 +40,19 @@ cards :: [Card]
 cards = map RoomCard rooms ++ map SuspectCard suspects ++ map WeaponCard weapons
 
 -- draw a random member of a list
-draw :: (RandomGen g, Monad m) => [a] -> StateT g m (a,[a])
+draw :: (RandomGen g, Monad m) => [a] -> StateT g m (Maybe (a,[a]))
+draw [] = return Nothing
 draw as = do
   i <- StateT $ return . randomR (0, length as - 1)
   let (before, a : after) = splitAt i as
-  return (a, before ++ after)
+  return $ Just (a, before ++ after)
 
 -- shuffle the elements of a list into random order
 -- using http://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
 shuffle :: (RandomGen g, Monad m) => [a] -> StateT g m [a]
 shuffle [] = return []
 shuffle as = do
-  (a,as') <- draw as
+  Just (a,as') <- draw as
   liftM (a:) $ shuffle as'
 
 -- deal out the given cards to n players
