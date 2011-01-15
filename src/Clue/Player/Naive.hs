@@ -7,6 +7,7 @@ import Control.Monad.State
 import Data.List ((\\))
 
 data Naive = Naive { whos :: [Suspect], wheres :: [Room], hows :: [Weapon] }
+  deriving (Show, Eq)
 
 eliminate :: Card -> Naive -> Naive
 eliminate (SuspectCard s) n = n { whos = whos n \\ [s] }
