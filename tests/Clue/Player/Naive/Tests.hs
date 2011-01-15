@@ -21,3 +21,8 @@ prop_eliminate_decreases_options :: Card -> Naive -> Property
 prop_eliminate_decreases_options c n =
   property $ possibilites n >= possibilites (eliminate c n)
   where possibilites (Naive ss rs ws) = length ss + length rs + length ws
+
+prop_eliminate_is_idemponent :: Card -> Naive -> Property
+prop_eliminate_is_idemponent c n =
+  property $ (eliminate c n) == (eliminate c $ eliminate c n)
+
