@@ -16,6 +16,5 @@ dist/setup-config: Clue.cabal
 	runhaskell Setup.hs configure --user
 
 clean:
-	find src -name \*.hi -delete
-	find tests -name \*.hi -delete
+	find src tests -name \*.hi -delete
 	rm -rf dist bin
