@@ -57,5 +57,7 @@ shuffle as = do
 -- deal out the given cards to n players
 deal :: Int -> [a] -> [[a]]
 deal n [] = replicate n []
-deal n as = zipWith (:) cs $ deal n as'
+deal n as = zipWith ($) cs' $ deal n as'
   where (cs, as') = splitAt n as
+        cs' = map (:) cs ++ replicate (n - length cs) id
+      
