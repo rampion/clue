@@ -12,19 +12,19 @@ source-repository head
   location: git://github.com/rampion/clue.git
 
 library
-  ghc-options: -Wall
+  ghc-options: -Wall -fno-warn-unused-do-bind
   build-depends: random, base, mtl
   exposed-modules: Clue.Game, Clue.Cards, Clue.Player, Clue.Player.Naive
   hs-source-dirs: src
 
 executable clue-demo
-  ghc-options: -Wall
-  build-depends: haskell98, random, base, mtl, Clue
+  ghc-options: -Wall -fno-warn-unused-do-bind
+  build-depends: random, base, mtl, haskell98, Clue
   main-is: Demo.hs
   hs-source-dirs: src
 
 executable clue-tests
-  ghc-options: -Wall -F -pgmF htfpp
+  ghc-options: -Wall -F -pgmF htfpp -fno-warn-unused-do-bind
   build-depends: random, base, mtl, HTF, Clue
   main-is: Tests.hs
   hs-source-dirs: tests
