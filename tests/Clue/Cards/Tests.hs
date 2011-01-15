@@ -1,9 +1,6 @@
 module Clue.Cards.Tests where
+import Test.Framework
 
-import Test.QuickCheck.Gen
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Property
-import Test.QuickCheck.Test
 import Clue.Cards
 
 import Data.List (transpose)
@@ -16,12 +13,8 @@ instance Arbitrary Undealt where
     n    <- choose (1, 2 * length deck)
     return $ Undealt n deck
 
-creates_n_lists :: Undealt -> Property
-creates_n_lists (Undealt n as) = property $ n == length (deal n as)
+prop_creates_n_lists :: Undealt -> Property
+prop_creates_n_lists (Undealt n as) = property $ n == length (deal n as)
 
-distributes_cards :: Undealt -> Property
-distributes_cards (Undealt n as) = property $ as == concat (transpose $ deal n as)
-
-clue_card_props = [ creates_n_lists
-                  , distributes_cards
-                  ]
+prop_distributes_cards :: Undealt -> Property
+prop_distributes_cards (Undealt n as) = property $ as == concat (transpose $ deal n as)

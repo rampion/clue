@@ -1,6 +1,6 @@
 name: Clue
 version:  0.1.0
-cabal-version:  >= 1.2
+cabal-version:  >= 1.8
 author:   Noah Luck Easterly
 
 category: Games
@@ -19,12 +19,12 @@ library
 
 executable clue-demo
   ghc-options: -Wall
-  build-depends: haskell98
+  build-depends: haskell98, random, base, mtl, Clue
   main-is: Demo.hs
   hs-source-dirs: src
 
 executable clue-tests
-  ghc-options: -Wall
-  build-depends: QuickCheck
+  ghc-options: -Wall -F -pgmF htfpp
+  build-depends: random, base, mtl, HTF, Clue
   main-is: Tests.hs
-  hs-source-dirs: tests src
+  hs-source-dirs: tests

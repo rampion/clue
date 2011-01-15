@@ -1,7 +1,10 @@
 module Main where
+import Test.Framework
+import System.Environment (getArgs)
+
 import Clue.Cards.Tests
-import Test.QuickCheck.Test
 
 main :: IO ()
 main = do
-  mapM_ quickCheck clue_card_props
+  args <- getArgs
+  runTestWithArgs args Clue.Cards.Tests.allHTFTests
