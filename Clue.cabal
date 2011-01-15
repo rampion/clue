@@ -25,6 +25,6 @@ executable clue-demo
 
 executable clue-tests
   ghc-options: -Wall -F -pgmF htfpp -fno-warn-unused-do-bind
-  build-depends: random, base, mtl, HTF, Clue
+  build-depends: random, base, mtl, HTF, Clue, QuickCheck
   main-is: Tests.hs
   hs-source-dirs: tests
