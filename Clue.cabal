@@ -1,0 +1,19 @@
+name: Clue
+version:  0.1.0
+cabal-version:  >= 1.2
+author:   Noah Luck Easterly
+homepage: http://github.com/rampion/Clue
+category: Games
+synopsis: A set of modules for playing simplified games of Clue (aka Cluedo)
+build-type: Simple
+
+Library
+  build-depends: random, base, mtl
+  exposed-modules: Clue.Game, Clue.Cards, Clue.Player, Clue.Player.Naive
+  hs-source-dirs: src
+
+Executable clue-demo
+  build-depends: haskell98
+  main-is: Demo.hs
+  hs-source-dirs: src
+
