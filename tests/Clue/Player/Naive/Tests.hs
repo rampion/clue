@@ -39,9 +39,23 @@ prop_eliminate_is_idemponent c n =
 
 runNaive :: StateT Naive Identity a -> Naive -> (a, Naive)
 runNaive st n = runIdentity $ runStateT st n
+  
+__ :: a
+__ = undefined
 
 test_dealIn_nothing :: Assertion
 test_dealIn_nothing = 
   ((),Naive suspects rooms weapons) @?= runNaive (dealIn __ __ []) __
-  where __ :: a
-        __ = undefined
+
+test_dealIn_everything :: Assertion
+test_dealIn_everything =
+  ((),Naive [] [] []) @?= runNaive (dealIn __ __ cards) __
+
+test_dealIn_something :: Assertion
+test_dealIn_something =
+  ((),Naive ss rs ws) @?= runNaive (dealIn __ __ [SuspectCard s, RoomCard r, WeaponCard w]) __
+  where s:ss = suspects
+        r:rs = rooms
+        w:ws = weapons
+
+
