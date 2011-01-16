@@ -2,7 +2,7 @@
 module Clue.Player.Naive.Tests where
 import Test.Framework
 import Control.Monad (liftM3, liftM)
-import Data.List (nub)
+import Data.List (nub, intersect)
 
 import Clue.Player.Naive
 import Clue.Cards hiding (elements)
@@ -17,10 +17,17 @@ instance Arbitrary Naive where
     where set :: (Arbitrary a, Eq a) => Gen [a]
           set = liftM nub arbitrary
 
-prop_eliminate_decreases_options :: Card -> Naive -> Property
-prop_eliminate_decreases_options c n =
-  property $ possibilites n >= possibilites (eliminate c n)
-  where possibilites (Naive ss rs ws) = length ss + length rs + length ws
+prop_eliminate_removes_options :: Card -> Naive -> Property
+prop_eliminate_removes_options c n@(Naive ss rs ws) =
+  property $ ss' `isSubsetOf` ss && rs' `isSubsetOf` rs && ws' `isSubsetOf` ws
+  where isSubsetOf as bs = (as `intersect` bs) == as
+        (Naive ss' rs' ws') = eliminate c n
+
+prop_eliminate_removes_at_most_1 :: Card -> Naive -> Property
+prop_eliminate_removes_at_most_1 c n@(Naive ss rs ws) = 
+  property $ 0 <= diffsize && diffsize <= 1
+  where (Naive ss' rs' ws') = eliminate c n
+        diffsize = length ss + length rs + length ws - length ss' - length rs' - length ws'
 
 prop_eliminate_is_idemponent :: Card -> Naive -> Property
 prop_eliminate_is_idemponent c n =
