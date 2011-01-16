@@ -10,10 +10,10 @@ bin/%: dist/build
 	cp dist/build/$(notdir $@)/$(notdir $@) bin
 
 dist/build: dist/setup-config $(shell find src -name \*.hs) $(shell find tests -name \*.hs)
-	runhaskell Setup.hs build
+	cabal build
 
 dist/setup-config: Clue.cabal
-	runhaskell Setup.hs configure --user
+	cabal configure
 
 clean:
 	find src tests -name \*.hi -delete
