@@ -1,9 +1,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Clue.Player.Naive.Tests where
 import Test.Framework
-import Control.Monad (liftM3, liftM)
+import Test.HUnit.Base ((@?=))
+
+import Control.Monad.Identity
+import Control.Monad.State
 import Data.List (nub, intersect)
 
+import Clue.Player
 import Clue.Player.Naive
 import Clue.Cards hiding (elements)
 
@@ -33,3 +37,11 @@ prop_eliminate_is_idemponent :: Card -> Naive -> Property
 prop_eliminate_is_idemponent c n =
   property $ (eliminate c n) == (eliminate c $ eliminate c n)
 
+runNaive :: StateT Naive Identity a -> Naive -> (a, Naive)
+runNaive st n = runIdentity $ runStateT st n
+
+test_dealIn_nothing :: Assertion
+test_dealIn_nothing = 
+  ((),Naive suspects rooms weapons) @?= runNaive (dealIn __ __ []) __
+  where __ :: a
+        __ = undefined

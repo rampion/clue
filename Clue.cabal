@@ -24,7 +24,7 @@ executable clue-demo
   hs-source-dirs: src
 
 executable clue-tests
-  ghc-options: -Wall -F -pgmF htfpp -fno-warn-unused-do-bind
-  build-depends: random, base, mtl, HTF, Clue, QuickCheck
+  ghc-options: -Wall -fno-warn-unused-do-bind -F -pgmF htfpp -O0
+  build-depends: random, base >= 4, mtl, HTF, Clue, QuickCheck, HUnit
   main-is: Tests.hs
   hs-source-dirs: tests
