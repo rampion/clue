@@ -22,6 +22,9 @@ they are marked as a cheater.  They no longer get turns, and the mediator will
 automatically choose which card to display for them when responding to others suggestions
 from then on.
 
-After a player makes an accusation, it is checked against the three cards revealed.  If they are correct, they win, and the game ends.  If they are wrong, they lose, and they take no more turns, though they still get to choose which card to reveal when others make suggestions.
+After a player makes an accusation, it is checked against the three cards
+revealed.  If they are correct, they win, and the game ends.  If they are wrong,
+they lose, and they take no more turns, though they still get to choose which
+card to reveal when others make suggestions.
 
 If all players have lost, the game ends.
